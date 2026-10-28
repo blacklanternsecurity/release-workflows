@@ -33,8 +33,9 @@ App and can't be moved or deleted, so a version comment always matches its SHA.
   `zizmor`). No approval needed.
 - `stable`: pull request from `dev`, approved by a code owner other than the last pusher, required checks.
   Nobody bypasses it.
-- A merge to `stable` runs `release.yml`, which waits for a `bbot-leads` approval at the `release`
-  environment and then tags the merge commit `v<version>` from `pyproject.toml`.
+- A merge to `stable` runs `release.yml`, which tags the merge commit `v<version>` from `pyproject.toml`.
+  It stops twice at the `release` environment, once before checking the release credentials and once
+  before publishing, and each stop needs a `bbot-leads` approval.
 
 Versions follow semantic versioning: a change to a workflow's inputs, outputs, secrets or required
 permissions that a caller must act on is a major version.

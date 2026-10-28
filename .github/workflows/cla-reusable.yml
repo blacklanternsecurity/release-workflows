@@ -23,16 +23,16 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: blacklanternsecurity
-          # CLA holds the signatures; the calling repository's pull request commits are read for private callers.
-          repositories: CLA,${{ github.event.repository.name }}
+          # Only CLA, which holds the signatures. The caller's pull request is read with its own GITHUB_TOKEN.
+          repositories: CLA
           permission-contents: write
           permission-members: read
-          permission-pull-requests: read
 
       - name: Check all committers against org and allowlist
         id: cla-check
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
@@ -40,7 +40,7 @@ jobs:
             PR_NUM="${{ github.event.issue.number }}"
           fi
 
-          COMMITTERS=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUM/commits" --paginate --jq '.[].author.login' | sort -u)
+          COMMITTERS=$(GH_TOKEN="$PR_TOKEN" gh api "repos/${{ github.repository }}/pulls/$PR_NUM/commits" --paginate --jq '.[].author.login' | sort -u)
           ALL_EXEMPT=true
           EXEMPT_LOGINS=""
 

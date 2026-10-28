@@ -1,0 +1,36 @@
+# Releases this repository on a merge to stable, with its own workflows (publishing policy rules 1-2).
+name: Release
+on:
+  push:
+    branches: [stable]
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: read
+    uses: $/.github/workflows/release-check.yml
+
+  tests:
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/tests.yml
+
+  release:
+    needs: [check, tests]
+    if: needs.check.outputs.release == 'true'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/publish.yml
+    with:
+      version: ${{ needs.check.outputs.version }}
+      tag: ${{ needs.check.outputs.tag }}

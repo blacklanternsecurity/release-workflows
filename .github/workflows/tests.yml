@@ -2,14 +2,15 @@ name: Tests
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [dev]
+  workflow_call:
 
 permissions:
   contents: read
 
 jobs:
   python:
-    uses: ./.github/workflows/python-tests.yml
+    uses: $/.github/workflows/python-tests.yml
     with:
       uv-sync-args: --group dev
 

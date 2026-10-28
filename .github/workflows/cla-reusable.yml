@@ -23,11 +23,16 @@ jobs:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PRIVATE_KEY }}
           owner: blacklanternsecurity
+          # Only CLA, which holds the signatures. The caller's pull request is read with its own GITHUB_TOKEN.
+          repositories: CLA
+          permission-contents: write
+          permission-members: read
 
       - name: Check all committers against org and allowlist
         id: cla-check
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           if [ "${{ github.event_name }}" = "pull_request_target" ]; then
             PR_NUM="${{ github.event.pull_request.number }}"
@@ -35,7 +40,7 @@ jobs:
             PR_NUM="${{ github.event.issue.number }}"
           fi
 
-          COMMITTERS=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUM/commits" --paginate --jq '.[].author.login' | sort -u)
+          COMMITTERS=$(GH_TOKEN="$PR_TOKEN" gh api "repos/${{ github.repository }}/pulls/$PR_NUM/commits" --paginate --jq '.[].author.login' | sort -u)
           ALL_EXEMPT=true
           EXEMPT_LOGINS=""
 
@@ -90,7 +95,8 @@ jobs:
         if: |
           (steps.cla-check.outputs.all_exempt != 'true') &&
           ((github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target')
-        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        # Upstream is archived with no maintained successor; replacing it is tracked with the CLA cleanup.
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1 # zizmor: ignore[archived-uses]
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PERSONAL_ACCESS_TOKEN: ${{ steps.app-token.outputs.token }}

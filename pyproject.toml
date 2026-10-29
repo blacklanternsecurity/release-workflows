@@ -1,6 +1,6 @@
 [project]
-name = "shared-workflows"
-version = "0.0.0"
+name = "release-workflows"
+version = "1.0.0"
 requires-python = ">=3.11"
 dependencies = ["packaging", "pyyaml"]
 

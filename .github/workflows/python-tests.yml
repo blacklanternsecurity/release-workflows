@@ -94,7 +94,8 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - if: inputs.secret-env != '[]'
         env:
-          SECRETS: ${{ toJSON(secrets) }}
+          # Only the secrets declared above reach a reusable workflow; secret-env picks from those by name.
+          SECRETS: ${{ toJSON(secrets) }} # zizmor: ignore[overprovisioned-secrets]
           NAMES: ${{ inputs.secret-env }}
         run: |
           python3 - <<'PY'

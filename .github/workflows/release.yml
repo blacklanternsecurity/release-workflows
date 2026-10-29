@@ -17,6 +17,8 @@ jobs:
       actions: read
       pull-requests: read
     uses: $/.github/workflows/release-check.yml
+    secrets:
+      BLS_RELEASE_PRIVATE_KEY: ${{ secrets.BLS_RELEASE_PRIVATE_KEY }}
 
   tests:
     needs: check
@@ -34,3 +36,5 @@ jobs:
     with:
       version: ${{ needs.check.outputs.version }}
       tag: ${{ needs.check.outputs.tag }}
+    secrets:
+      BLS_RELEASE_PRIVATE_KEY: ${{ secrets.BLS_RELEASE_PRIVATE_KEY }}

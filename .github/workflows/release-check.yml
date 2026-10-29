@@ -22,7 +22,9 @@ on:
         default: ""
     secrets:
       BLS_RELEASE_PRIVATE_KEY:
-        description: Never passed by a caller. Declared so the release environment's secret of this name resolves.
+        description: >-
+          Map it by name from the caller. The value comes from the release environment, which the
+          caller's job can't read; without the mapping the environment job sees it empty.
         required: false
     outputs:
       version:

@@ -120,6 +120,9 @@ jobs:
           pattern: image-sbom-*
           path: sbom
           merge-multiple: true
+      # The SBOM action doesn't create its output directory, which exists only when image SBOMs were
+      # downloaded above.
+      - run: mkdir -p sbom
       - uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           path: .

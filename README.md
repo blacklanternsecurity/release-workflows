@@ -22,10 +22,17 @@ Pin a release by full commit SHA, with the version as a comment:
 jobs:
   check:
     uses: blacklanternsecurity/release-workflows/.github/workflows/release-check.yml@<full sha of the tag> # v1.0.0
+    secrets:
+      BLS_RELEASE_PRIVATE_KEY: ${{ secrets.BLS_RELEASE_PRIVATE_KEY }}
 ```
 
 Use the SHA of a `v*` tag of this repository, never a branch. Tags here are created only by the release
 App and can't be moved or deleted, so a version comment always matches its SHA.
+
+`release-check.yml` and `publish.yml` read the release App key in jobs that run in the caller's `release`
+environment. A reusable workflow gets an environment secret only when the caller passes it, so map it by
+name as above, alongside any other secrets such as `registry-token`. The caller's own job can't read the
+value; GitHub supplies it inside the environment.
 
 ## How changes land
 

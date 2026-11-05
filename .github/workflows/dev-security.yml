@@ -1,7 +1,9 @@
 # The automated security review that stands in for a second developer on dev (policy rule 3).
+# Other repositories call it from a pull_request workflow; dependency review needs a pull request's base and head.
 name: dev-security
 on:
   pull_request:
+  workflow_call:
 
 permissions: {}
 

@@ -7,6 +7,7 @@ same release controls as the projects it publishes.
 | Workflow | Purpose |
 |---|---|
 | `python-tests.yml`, `python-versions.yml`, `rust-tests.yml` | Test matrices |
+| `dev-security.yml` | Dependency review and workflow lint (`actionlint`, `zizmor`), the security checks `dev` requires |
 | `stable-guard.yml` | Checks a pull request into `stable` is release-ready: a MAJOR.MINOR.PATCH version, matching chart versions, no git dependencies |
 | `release-check.yml` | Runs on `stable` only: reads the version, refuses a partly published release, checks merged-PR provenance and that the `release` environment is protected |
 | `maturin-wheels.yml`, `crates.yml`, `docker.yml` | Build and publish artifacts |
@@ -33,6 +34,21 @@ App and can't be moved or deleted, so a version comment always matches its SHA.
 environment. A reusable workflow gets an environment secret only when the caller passes it, so map it by
 name as above, alongside any other secrets such as `registry-token`. The caller's own job can't read the
 value; GitHub supplies it inside the environment.
+
+Call `dev-security.yml` from a workflow that runs on `pull_request`, with a job named `dev-security`, so the
+checks a `dev` ruleset requires are `dev-security / dependency-review` and `dev-security / workflow-lint`:
+
+```yaml
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  dev-security:
+    uses: blacklanternsecurity/release-workflows/.github/workflows/dev-security.yml@<full sha of the tag> # v1.1.0
+```
 
 ## How changes land
 

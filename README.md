@@ -30,6 +30,11 @@ jobs:
 Use the SHA of a `v*` tag of this repository, never a branch. Tags here are created only by the release
 App and can't be moved or deleted, so a version comment always matches its SHA.
 
+`release-check.yml` and `publish.yml` read the release App key in jobs that run in the caller's `release`
+environment. A reusable workflow gets an environment secret only when the caller passes it, so map it by
+name as above, alongside any other secrets such as `registry-token`. The caller's own job can't read the
+value; GitHub supplies it inside the environment.
+
 Call `dev-security.yml` from a workflow that runs on `pull_request`, with a job named `dev-security`, so the
 checks a `dev` ruleset requires are `dev-security / dependency-review` and `dev-security / workflow-lint`:
 
@@ -44,11 +49,6 @@ jobs:
   dev-security:
     uses: blacklanternsecurity/release-workflows/.github/workflows/dev-security.yml@<full sha of the tag> # v1.1.0
 ```
-
-`release-check.yml` and `publish.yml` read the release App key in jobs that run in the caller's `release`
-environment. A reusable workflow gets an environment secret only when the caller passes it, so map it by
-name as above, alongside any other secrets such as `registry-token`. The caller's own job can't read the
-value; GitHub supplies it inside the environment.
 
 ## How changes land
 

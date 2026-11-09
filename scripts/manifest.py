@@ -82,7 +82,7 @@ def python_versions(root):
     return versions
 
 
-def version(root):
+def manifest_version(root):
     pyproject = load(root / "pyproject.toml")
     project = pyproject.get("project", {})
     if "version" in project:
@@ -95,10 +95,22 @@ def version(root):
     if "version" in tool.get("poetry", {}):
         return tool["poetry"]["version"]
     cargo = root / tool.get("maturin", {}).get("manifest-path", "Cargo.toml")
-    found = cargo_version(cargo)
-    if found is None:
-        sys.exit(f"no static version in {root}")
-    return found
+    return cargo_version(cargo)
+
+
+def version(root):
+    """The release version: the package manifest's, or a VERSION file's for a repository without one (Docker or Go).
+
+    Where both exist they must agree, so a VERSION file can't drift from the manifest it duplicates.
+    """
+    declared = manifest_version(root)
+    path = root / "VERSION"
+    from_file = path.read_text().strip() if path.is_file() else None
+    if declared is None and from_file is None:
+        sys.exit(f"no static version in {root}: add a VERSION file or a version to the package manifest")
+    if declared is not None and from_file is not None and declared != from_file:
+        sys.exit(f"VERSION {from_file} does not match manifest version {declared}")
+    return declared if declared is not None else from_file
 
 
 def emit(**outputs):

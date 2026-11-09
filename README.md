@@ -9,7 +9,7 @@ same release controls as the projects it publishes.
 | `python-tests.yml`, `python-versions.yml`, `rust-tests.yml` | Test matrices |
 | `dev-security.yml` | Dependency review and workflow lint (`actionlint`, `zizmor`), the security checks `dev` requires |
 | `stable-guard.yml` | Checks a pull request into `stable` is release-ready: a MAJOR.MINOR.PATCH version, matching chart versions, no git dependencies |
-| `release-check.yml` | Runs on `stable` only: reads the version, refuses a partly published release, checks merged-PR provenance and that the `release` environment is protected |
+| `release-check.yml` | Runs on `stable` only: reads the version, refuses a partly published release, checks merged-PR provenance and that the `release` environment is protected. The version comes from the package manifest (`pyproject.toml`, `Cargo.toml`), or from a `VERSION` file at the repository root in a repository without one, such as a Go or Docker-only repository; where both exist they must agree |
 | `maturin-wheels.yml`, `crates.yml`, `docker.yml` | Build and publish artifacts |
 | `docker-dev.yml` | `dev` channel images on GHCR (not releases) |
 | `publish.yml` | Creates the tag and GitHub release with the release App, after everything is published |

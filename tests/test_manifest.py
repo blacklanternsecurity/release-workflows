@@ -164,3 +164,44 @@ def test_release_refuses_git_crates(repo, cargo):
 def test_release_allows_registry_dependencies_with_markers(repo):
     root = repo('[project]\nname = "x"\nversion = "1.0.0"\ndependencies = ["radixtarget>=3; python_version >= \'3.11\'", "y[extra]~=1.0"]\n')
     assert run(root, "release").returncode == 0
+
+
+def bare(tmp_path, files):
+    for name, body in files.items():
+        (tmp_path / name).write_text(body)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, check=True)
+    subprocess.run(["git", "add", "."], cwd=tmp_path, check=True)
+    return tmp_path
+
+
+def test_release_reads_a_version_file_without_a_package_manifest(tmp_path):
+    root = bare(tmp_path, {"VERSION": "1.7.2\n", "go.mod": "module example.com/x\n"})
+    assert outputs(run(root, "release")) == {
+        "version": "1.7.2",
+        "tag": "v1.7.2",
+        "major": "1",
+        "minor": "7",
+        "pypi_name": "",
+        "crate_name": "",
+    }
+
+
+def test_release_refuses_a_prerelease_version_file(tmp_path):
+    result = run(bare(tmp_path, {"VERSION": "1.7.2-rc1\n"}), "release")
+    assert result.returncode != 0 and "MAJOR.MINOR.PATCH" in result.stderr
+
+
+def test_release_refuses_a_version_file_that_disagrees_with_the_manifest(repo):
+    result = run(repo('[project]\nname = "x"\nversion = "1.2.3"\n', {"VERSION": "1.2.4\n"}), "release")
+    assert result.returncode != 0 and "does not match manifest version 1.2.3" in result.stderr
+
+
+def test_release_accepts_a_version_file_that_matches_the_manifest(repo):
+    root = repo('[project]\nname = "x"\nversion = "1.2.3"\n', {"VERSION": "1.2.3\n"})
+    subprocess.run(["git", "init", "-q"], cwd=root, check=True)
+    assert outputs(run(root, "release"))["version"] == "1.2.3"
+
+
+def test_release_names_the_missing_version_source(tmp_path):
+    result = run(bare(tmp_path, {"go.mod": "module example.com/x\n"}), "release")
+    assert result.returncode != 0 and "add a VERSION file" in result.stderr

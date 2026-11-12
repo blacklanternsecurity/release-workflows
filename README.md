@@ -13,7 +13,7 @@ same release controls as the projects it publishes.
 | `maturin-wheels.yml`, `crates.yml`, `docker.yml` | Build and publish artifacts |
 | `docker-dev.yml` | `dev` channel images on GHCR (not releases) |
 | `publish.yml` | Creates the tag and GitHub release with the release App, after everything is published |
-| `cla-reusable.yml` | CLA check. The agreement and signatures live in [`CLA`](https://github.com/blacklanternsecurity/CLA) |
+| `cla-reusable.yml` | CLA check. The agreement and signatures live in [`CLA`](https://github.com/blacklanternsecurity/CLA), signatures on its bot-only `signatures` branch. Members and named bots are exempt only when the pull request's opener is one of them; otherwise only a member's signed commits are. Fails a pull request with more than 100 commits |
 
 ## Using a workflow
 

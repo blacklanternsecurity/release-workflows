@@ -11,6 +11,13 @@ permissions: {}
 
 jobs:
   CLAAssistant:
+    # Run (and mint the App token) only for pull request events, or for a comment on a pull request
+    # that is exactly "recheck" or contains the sign phrase. contains() ignores case, like the action's matcher.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+      (github.event.comment.body == 'recheck' ||
+      contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA')))
     permissions:
       pull-requests: write
       statuses: write
@@ -28,73 +35,89 @@ jobs:
           permission-contents: write
           permission-members: read
 
-      - name: Check all committers against org and allowlist
+      - name: Decide who is exempt
         id: cla-check
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUM: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
-          if [ "${{ github.event_name }}" = "pull_request_target" ]; then
-            PR_NUM="${{ github.event.pull_request.number }}"
-          else
-            PR_NUM="${{ github.event.issue.number }}"
+          set -euo pipefail
+          # A commit's author is only an email, so a commit can claim to be from a member or a bot.
+          # The pull request's opener is verified by GitHub. Members and named bots are exempt only
+          # when the opener is one of them; otherwise only a member's signed (verified) commits,
+          # committed by that same member, are exempt. A failed membership lookup means "not exempt".
+          NAMED_BOTS=" dependabot[bot] github-actions[bot] renovate[bot] bls-signaturebot[bot] bls-release[bot] "
+          is_named_bot() { case "$NAMED_BOTS" in *" $1 "*) return 0 ;; esac; return 1; }
+          is_member() { gh api "orgs/blacklanternsecurity/members/$1" > /dev/null 2>&1; }
+
+          PR_JSON=$(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM")
+          OPENER=$(jq -r '.user.login' <<< "$PR_JSON")
+          N_COMMITS=$(jq -r '.commits' <<< "$PR_JSON")
+          if [ "$N_COMMITS" -gt 100 ]; then
+            echo "::error::This pull request has $N_COMMITS commits; the CLA check reads only the first 100. Split it or squash it."
+            exit 1
           fi
 
-          COMMITTERS=$(GH_TOKEN="$PR_TOKEN" gh api "repos/${{ github.repository }}/pulls/$PR_NUM/commits" --paginate --jq '.[].author.login' | sort -u)
-          ALL_EXEMPT=true
-          EXEMPT_LOGINS=""
+          OPENER_EXEMPT=false
+          if is_named_bot "$OPENER"; then
+            OPENER_EXEMPT=true; echo "opener $OPENER is a named bot: exempt"
+          elif is_member "$OPENER"; then
+            OPENER_EXEMPT=true; echo "opener $OPENER is an org member: exempt"
+          else
+            echo "opener $OPENER is not exempt"
+          fi
 
-          for LOGIN in $COMMITTERS; do
-            if [ -z "$LOGIN" ] || [ "$LOGIN" = "null" ]; then
-              echo "Unknown committer (no GitHub login): not exempt"
-              ALL_EXEMPT=false
+          EXEMPT=" "
+          REQUIRED=" "
+          while IFS=$'\t' read -r AUTHOR COMMITTER VERIFIED; do
+            if [ "$AUTHOR" = "null" ]; then
+              echo "a commit author has no GitHub login: CLA required"
+              REQUIRED="$REQUIRED<none> "
               continue
             fi
-
-            EXEMPT=false
-
-            AUTHOR_TYPE=$(gh api "users/${LOGIN}" --jq '.type' 2>/dev/null || echo "Unknown")
-            if [ "$AUTHOR_TYPE" = "Bot" ]; then
-              echo "$LOGIN is a Bot account: exempt"
-              EXEMPT=true
+            OK=false
+            if [ "$OPENER_EXEMPT" = "true" ]; then
+              if is_named_bot "$AUTHOR" || is_member "$AUTHOR"; then OK=true; fi
+            elif [ "$VERIFIED" = "true" ] && [ "$COMMITTER" = "$AUTHOR" ] && is_member "$AUTHOR"; then
+              OK=true
             fi
+            if [ "$OK" = "true" ]; then EXEMPT="$EXEMPT$AUTHOR "; else REQUIRED="$REQUIRED$AUTHOR "; fi
+          done < <(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM/commits?per_page=100" \
+            --jq '.[] | [(.author.login // "null"), (.committer.login // "null"), (.commit.verification.verified | tostring)] | @tsv')
 
-            if [ "$EXEMPT" = "false" ]; then
-              if gh api "orgs/blacklanternsecurity/members/$LOGIN" > /dev/null 2>&1; then
-                echo "$LOGIN is an org member: exempt"
-                EXEMPT=true
-              fi
-            fi
+          # A login is allowlisted only if none of its commits needed a CLA.
+          ALLOWLIST=""
+          while read -r LOGIN; do
+            [ -n "$LOGIN" ] || continue
+            case "$REQUIRED" in *" $LOGIN "*) continue ;; esac
+            echo "$LOGIN: exempt"
+            ALLOWLIST="${ALLOWLIST:+$ALLOWLIST,}$LOGIN"
+          done < <(tr ' ' '\n' <<< "$EXEMPT" | sort -u)
+          while read -r LOGIN; do
+            [ -n "$LOGIN" ] && echo "$LOGIN: CLA required"
+          done < <(tr ' ' '\n' <<< "$REQUIRED" | sort -u)
 
-            if [ "$EXEMPT" = "true" ]; then
-              EXEMPT_LOGINS="${EXEMPT_LOGINS:+$EXEMPT_LOGINS,}$LOGIN"
-            else
-              echo "$LOGIN is not exempt: CLA required"
-              ALL_EXEMPT=false
-            fi
-          done
-
+          ALL_EXEMPT=false
+          if [ "$OPENER_EXEMPT" = "true" ] && [ -z "${REQUIRED// /}" ]; then ALL_EXEMPT=true; fi
           echo "all_exempt=$ALL_EXEMPT" >> "$GITHUB_OUTPUT"
-          {
-            echo "exempt_logins<<EOF"
-            echo "$EXEMPT_LOGINS"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
+          echo "allowlist=$ALLOWLIST" >> "$GITHUB_OUTPUT"
 
       - name: Skip CLA when all committers are exempt
         if: steps.cla-check.outputs.all_exempt == 'true' && github.event_name == 'pull_request_target'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
-          gh api --method POST "repos/${{ github.repository }}/statuses/${{ github.event.pull_request.head.sha }}" \
+          gh api --method POST "repos/$REPO/statuses/$HEAD_SHA" \
             -f state=success \
             -f context="CLAAssistant" \
-            -f description="CLA check skipped: all committers are org members or bots"
+            -f description="CLA check skipped: opener and all committers are org members or named bots"
 
       - name: "CLA Assistant"
-        if: |
-          (steps.cla-check.outputs.all_exempt != 'true') &&
-          ((github.event.comment.body == 'recheck' || github.event.comment.body == 'I have read the CLA Document and I hereby sign the CLA') || github.event_name == 'pull_request_target')
+        if: steps.cla-check.outputs.all_exempt != 'true'
         # Upstream is archived with no maintained successor; replacing it is tracked with the CLA cleanup.
         uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1 # zizmor: ignore[archived-uses]
         env:
@@ -102,9 +125,11 @@ jobs:
           PERSONAL_ACCESS_TOKEN: ${{ steps.app-token.outputs.token }}
         with:
           path-to-signatures: "signatures/version1/cla.json"
-          path-to-document: "https://github.com/blacklanternsecurity/CLA/blob/main/ICLA.md"
-          branch: "main"
-          allowlist: "dependabot[bot],github-actions[bot],renovate[bot],${{ steps.cla-check.outputs.exempt_logins }}"
+          # The ICLA text at a fixed commit: a signature refers to this exact text.
+          path-to-document: "https://github.com/blacklanternsecurity/CLA/blob/ee1e15fb37b72c2ddb3098d7837cfb5f5c5feba3/ICLA.md"
+          # Bot-only branch (rulesets signatures-no-rewrite, signatures-bot-only); main's copy is a frozen archive.
+          branch: "signatures"
+          allowlist: ${{ steps.cla-check.outputs.allowlist }}
           remote-organization-name: "blacklanternsecurity"
           remote-repository-name: "CLA"
           lock-pullrequest-aftermerge: "false"

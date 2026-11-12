@@ -44,10 +44,12 @@ jobs:
           PR_NUM: ${{ github.event.pull_request.number || github.event.issue.number }}
         run: |
           set -euo pipefail
-          # A commit's author is only an email, so a commit can claim to be from a member or a bot.
-          # The pull request's opener is verified by GitHub. Members and named bots are exempt only
-          # when the opener is one of them; otherwise only a member's signed (verified) commits,
-          # committed by that same member, are exempt. A failed membership lookup means "not exempt".
+          # Who must sign the CLA (sign = the sign-phrase comment; commit signatures play no part):
+          # - opener is an org member or a named bot: every commit author who is not a member or named bot.
+          # - opener is anyone else: the opener and every commit author, members and bots included.
+          #   A commit's author is only an email, so on such a pull request no author can be trusted
+          #   to be a member; and the action records only commit authors, so the opener must be one.
+          # A failed membership lookup means "not a member".
           NAMED_BOTS=" dependabot[bot] github-actions[bot] renovate[bot] bls-signaturebot[bot] bls-release[bot] "
           is_named_bot() { case "$NAMED_BOTS" in *" $1 "*) return 0 ;; esac; return 1; }
           is_member() { gh api "orgs/blacklanternsecurity/members/$1" > /dev/null 2>&1; }
@@ -71,21 +73,28 @@ jobs:
 
           EXEMPT=" "
           REQUIRED=" "
-          while IFS=$'\t' read -r AUTHOR COMMITTER VERIFIED; do
+          AUTHORS=" "
+          while read -r AUTHOR; do
             if [ "$AUTHOR" = "null" ]; then
               echo "a commit author has no GitHub login: CLA required"
               REQUIRED="$REQUIRED<none> "
               continue
             fi
+            AUTHORS="$AUTHORS$AUTHOR "
             OK=false
-            if [ "$OPENER_EXEMPT" = "true" ]; then
-              if is_named_bot "$AUTHOR" || is_member "$AUTHOR"; then OK=true; fi
-            elif [ "$VERIFIED" = "true" ] && [ "$COMMITTER" = "$AUTHOR" ] && is_member "$AUTHOR"; then
-              OK=true
-            fi
+            if [ "$OPENER_EXEMPT" = "true" ] && { is_named_bot "$AUTHOR" || is_member "$AUTHOR"; }; then OK=true; fi
             if [ "$OK" = "true" ]; then EXEMPT="$EXEMPT$AUTHOR "; else REQUIRED="$REQUIRED$AUTHOR "; fi
           done < <(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM/commits?per_page=100" \
-            --jq '.[] | [(.author.login // "null"), (.committer.login // "null"), (.commit.verification.verified | tostring)] | @tsv')
+            --jq '.[] | .author.login // "null"')
+
+          if [ "$OPENER_EXEMPT" = "false" ]; then
+            case "$AUTHORS" in
+              *" $OPENER "*) ;;
+              *)
+                echo "::error::The opener ($OPENER) must sign the CLA, but has no commit in this pull request, so the CLA action can't record a signature. A maintainer handles this pull request by hand."
+                exit 1 ;;
+            esac
+          fi
 
           # A login is allowlisted only if none of its commits needed a CLA.
           ALLOWLIST=""

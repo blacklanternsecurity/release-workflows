@@ -1,8 +1,9 @@
 """The exemption step of cla-reusable.yml, run with a stub `gh` in place of the GitHub API.
 
-A commit's author is only an email, so a commit can claim to be from a member or a bot. These cases check
-that such a claim exempts nobody unless the pull request's opener (verified by GitHub) is a member or a
-named bot, or the commit is signed and committed by that same member.
+Signing means the CLA sign-phrase comment; commit signatures play no part. On a pull request opened by an
+org member or a named bot, other members and named bots are exempt. On one opened by anyone else, the
+opener and every commit author must sign, members included: a commit's author is only an email, so there
+no author can be trusted to be a member.
 """
 
 import os
@@ -36,7 +37,7 @@ def run_step(tmp_path, opener, members, commits, n_commits=None):
     gh.write_text(GH_STUB)
     gh.chmod(gh.stat().st_mode | stat.S_IEXEC)
     commits_file = tmp_path / "commits.tsv"
-    commits_file.write_text("".join("\t".join(c) + "\n" for c in commits))
+    commits_file.write_text("".join(c + "\n" for c in commits))
     output = tmp_path / "out"
     env = {
         **os.environ,
@@ -59,30 +60,19 @@ def run_step(tmp_path, opener, members, commits, n_commits=None):
     return result, outputs, required
 
 
-SIGNED, UNSIGNED = "true", "false"
-
 CASES = [
-    # (name, opener, members, commits [(author, committer, verified)], all_exempt, allowlist, required)
-    ("outsider PR, own commits", "out", "m1 m2", [("out", "out", UNSIGNED)], "false", "", ["out"]),
-    ("outsider PR, commit claims a member's email", "out", "m1", [("out", "out", UNSIGNED), ("m1", "out", UNSIGNED)], "false", "", ["m1", "out"]),
-    ("outsider PR, unsigned commit claims member as author and committer", "out", "m1", [("m1", "m1", UNSIGNED)], "false", "", ["m1"]),
-    ("outsider PR, commit claims dependabot", "out", "m1", [("dependabot[bot]", "dependabot[bot]", SIGNED)], "false", "", ["dependabot[bot]"]),
-    ("outsider PR, member's signed commit plus own", "out", "m1", [("m1", "m1", SIGNED), ("out", "out", UNSIGNED)], "false", "m1", ["out"]),
-    ("outsider PR, member's signed commit plus one claiming the member", "out", "m1", [("m1", "m1", SIGNED), ("m1", "out", UNSIGNED)], "false", "", ["m1"]),
-    ("outsider PR, outsider-signed commit authored as member", "out", "m1", [("m1", "out", SIGNED)], "false", "", ["m1"]),
-    (
-        "member PR, member and dependabot commits",
-        "m1",
-        "m1 m2",
-        [("m2", "m2", UNSIGNED), ("dependabot[bot]", "web-flow", SIGNED)],
-        "true",
-        "dependabot[bot],m2",
-        [],
-    ),
-    ("member PR, outsider commit", "m1", "m1", [("m1", "m1", UNSIGNED), ("out", "out", UNSIGNED)], "false", "m1", ["out"]),
-    ("dependabot PR", "dependabot[bot]", "m1", [("dependabot[bot]", "web-flow", SIGNED)], "true", "dependabot[bot]", []),
-    ("member PR, commit without a GitHub login", "m1", "m1", [("null", "null", UNSIGNED)], "false", "", ["<none>"]),
-    ("membership lookup fails: not exempt", "m1", "FAIL", [("m1", "m1", SIGNED)], "false", "", ["m1"]),
+    # (name, opener, members, commit authors, all_exempt, allowlist, required)
+    ("member opens PR with own commits: exempt", "m1", "m1", ["m1"], "true", "m1", []),
+    ("member commits on another member's PR: exempt", "m1", "m1 m2", ["m1", "m2"], "true", "m1,m2", []),
+    ("member PR with dependabot commit: exempt", "m1", "m1", ["m1", "dependabot[bot]"], "true", "dependabot[bot],m1", []),
+    ("dependabot PR: exempt", "dependabot[bot]", "m1", ["dependabot[bot]"], "true", "dependabot[bot]", []),
+    ("external commit on a member's PR: external signs", "m1", "m1", ["m1", "ext"], "false", "m1", ["ext"]),
+    ("external opens PR with own commits: external signs", "ext", "m1", ["ext"], "false", "", ["ext"]),
+    ("another external's commit on an external's PR: both sign", "ext", "m1", ["ext", "ext2"], "false", "", ["ext", "ext2"]),
+    ("member commit on an external's PR: member signs too", "ext", "m1", ["ext", "m1"], "false", "", ["ext", "m1"]),
+    ("external's PR with a commit claiming dependabot: must sign", "ext", "m1", ["ext", "dependabot[bot]"], "false", "", ["dependabot[bot]", "ext"]),
+    ("member PR, commit without a GitHub login: CLA required", "m1", "m1", ["null"], "false", "", ["<none>"]),
+    ("membership lookup fails: not a member", "m1", "FAIL", ["m1"], "false", "", ["m1"]),
 ]
 
 
@@ -95,7 +85,7 @@ def test_exemption(tmp_path, name, opener, members, commits, all_exempt, allowli
 
 
 def test_more_than_100_commits_fails(tmp_path):
-    result, outputs, _ = run_step(tmp_path, "m1", "m1", [("m1", "m1", SIGNED)], n_commits=346)
+    result, outputs, _ = run_step(tmp_path, "m1", "m1", ["m1"], n_commits=346)
     assert result.returncode != 0
     assert "only the first 100" in result.stdout
     assert outputs == {}
@@ -103,6 +93,13 @@ def test_more_than_100_commits_fails(tmp_path):
 
 def test_bracketed_login_is_not_a_glob(tmp_path):
     (tmp_path / "dependabotb").write_text("")
-    _, outputs, required = run_step(tmp_path, "out", "m1", [("dependabot[bot]", "x", UNSIGNED)])
-    assert required == ["dependabot[bot]"]
+    _, outputs, required = run_step(tmp_path, "ext", "m1", ["ext", "dependabot[bot]"])
+    assert required == ["dependabot[bot]", "ext"]
     assert outputs["allowlist"] == ""
+
+
+def test_external_opener_without_a_commit_fails(tmp_path):
+    result, outputs, _ = run_step(tmp_path, "ext", "m1", ["m1"])
+    assert result.returncode != 0
+    assert "The opener (ext) must sign the CLA" in result.stdout
+    assert outputs == {}

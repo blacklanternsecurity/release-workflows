@@ -57,6 +57,12 @@ jobs:
           PR_JSON=$(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM")
           OPENER=$(jq -r '.user.login' <<< "$PR_JSON")
           N_COMMITS=$(jq -r '.commits' <<< "$PR_JSON")
+          # Inside `if`, a failed `[` is just false, so check that the count is a number first.
+          case "$N_COMMITS" in
+            '' | *[!0-9]* | 0)
+              echo "::error::Could not read this pull request's commit count ($N_COMMITS). A maintainer handles this pull request by hand."
+              exit 1 ;;
+          esac
           if [ "$N_COMMITS" -gt 100 ]; then
             echo "::error::This pull request has $N_COMMITS commits; the CLA check reads only the first 100. Split it or squash it."
             exit 1
@@ -71,21 +77,31 @@ jobs:
             echo "opener $OPENER is not exempt"
           fi
 
+          # Read the commits into a variable: `set -e` can't see a failure inside `< <(...)`, and an empty
+          # read would leave every commit unchecked. The count must match, since an empty here-string still
+          # yields one empty line.
+          COMMIT_AUTHORS=$(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM/commits?per_page=100" \
+            --jq '.[] | .author.login // "null"')
+          N_READ=$(grep -c . <<< "$COMMIT_AUTHORS" || true)
+          if [ "$N_READ" != "$N_COMMITS" ]; then
+            echo "::error::Read $N_READ commit authors, but this pull request has $N_COMMITS commits. A maintainer handles this pull request by hand."
+            exit 1
+          fi
+
           EXEMPT=" "
           REQUIRED=" "
           AUTHORS=" "
           while read -r AUTHOR; do
             if [ "$AUTHOR" = "null" ]; then
-              echo "a commit author has no GitHub login: CLA required"
-              REQUIRED="$REQUIRED<none> "
-              continue
+              # The action credits such a commit to its committer, who may be allowlisted or may have signed.
+              echo "::error::A commit's author email is not linked to a GitHub account, so the CLA action would credit the commit to its committer. A maintainer handles this pull request by hand."
+              exit 1
             fi
             AUTHORS="$AUTHORS$AUTHOR "
             OK=false
             if [ "$OPENER_EXEMPT" = "true" ] && { is_named_bot "$AUTHOR" || is_member "$AUTHOR"; }; then OK=true; fi
             if [ "$OK" = "true" ]; then EXEMPT="$EXEMPT$AUTHOR "; else REQUIRED="$REQUIRED$AUTHOR "; fi
-          done < <(GH_TOKEN="$PR_TOKEN" gh api "repos/$REPO/pulls/$PR_NUM/commits?per_page=100" \
-            --jq '.[] | .author.login // "null"')
+          done <<< "$COMMIT_AUTHORS"
 
           if [ "$OPENER_EXEMPT" = "false" ]; then
             case "$AUTHORS" in

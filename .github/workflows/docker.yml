@@ -22,10 +22,14 @@ on:
         default: false
     secrets:
       DOCKER_USERNAME:
-        description: Never passed by a caller. The release environment's secret of this name.
+        description: >-
+          Map it by name from the caller. The value comes from the release environment, which the
+          caller's job can't read; without the mapping the environment job sees it empty.
         required: false
       DOCKER_TOKEN:
-        description: Never passed by a caller. The release environment's secret of this name.
+        description: >-
+          Map it by name from the caller. The value comes from the release environment, which the
+          caller's job can't read; without the mapping the environment job sees it empty.
         required: false
     outputs:
       images:

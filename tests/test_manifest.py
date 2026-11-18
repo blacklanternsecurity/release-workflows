@@ -161,6 +161,42 @@ def test_release_refuses_git_crates(repo, cargo):
     assert result.returncode != 0 and "blastdns" in result.stderr
 
 
+SHA = "ca822b48e698aac21fda13b91967bef5f78bbdc2"
+UV_GIT = '[project]\nname = "x"\nversion = "1.0.0"\n[tool.uv.sources]\nswarm = {{ git = "https://github.com/blacklanternsecurity/bbot-swarm.git", subdirectory = "swarm_common", {pin} }}\n'
+
+
+def test_release_allows_a_commit_pinned_git_source_when_asked(repo):
+    root = repo(UV_GIT.format(pin=f'rev = "{SHA}"'))
+    assert run(root, "release", "--allow-commit-pinned-git").returncode == 0
+
+
+@pytest.mark.parametrize(
+    "pin",
+    ['rev = "ca822b4"', 'rev = "CA822B48E698AAC21FDA13B91967BEF5F78BBDC2"', 'branch = "stable"', 'tag = "v1.0.0"', f'rev = "{SHA}", branch = "stable"', ""],
+)
+def test_release_refuses_git_sources_not_pinned_to_a_full_commit(repo, pin):
+    result = run(repo(UV_GIT.format(pin=pin).replace(",  }", " }")), "release", "--allow-commit-pinned-git")
+    assert result.returncode != 0 and "swarm" in result.stderr
+
+
+def test_release_refuses_a_commit_pinned_git_source_without_the_opt_in(repo):
+    result = run(repo(UV_GIT.format(pin=f'rev = "{SHA}"')), "release")
+    assert result.returncode != 0 and "swarm" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "pyproject",
+    [
+        '[project]\nname = "x"\nversion = "1.0.0"\n[tool.uv.sources]\nradixtarget = { url = "https://github.com/blacklanternsecurity/radixtarget/archive/dev.zip" }\n',
+        f'[project]\nname = "x"\nversion = "1.0.0"\ndependencies = ["radixtarget @ git+https://github.com/blacklanternsecurity/radixtarget@{SHA}"]\n',
+        f'[project]\nname = "x"\nversion = "1.0.0"\n[tool.uv.sources]\nradixtarget = [{{ git = "https://github.com/blacklanternsecurity/radixtarget", rev = "{SHA}" }}, {{ url = "https://example.invalid/r.zip" }}]\n',
+    ],
+)
+def test_the_opt_in_covers_only_uv_git_sources(repo, pyproject):
+    result = run(repo(pyproject), "release", "--allow-commit-pinned-git")
+    assert result.returncode != 0 and "radixtarget" in result.stderr
+
+
 def test_release_allows_registry_dependencies_with_markers(repo):
     root = repo('[project]\nname = "x"\nversion = "1.0.0"\ndependencies = ["radixtarget>=3; python_version >= \'3.11\'", "y[extra]~=1.0"]\n')
     assert run(root, "release").returncode == 0

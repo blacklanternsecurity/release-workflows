@@ -5,6 +5,12 @@ on:
       working-directory:
         type: string
         default: .
+      allow-commit-pinned-git:
+        description: >-
+          Accept a uv git source pinned to a full 40-character commit (rev), for a private dependency
+          with no registry release. Branches, tags, short revs and URL sources are still refused.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -26,4 +32,8 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
       - env:
           ROOT: ${{ inputs.working-directory }}
-        run: uv run --no-project --with packaging --with pyyaml python .shared/scripts/manifest.py --root "$ROOT" release
+          ALLOW_COMMIT_PINNED_GIT: ${{ inputs.allow-commit-pinned-git }}
+        run: |
+          flags=()
+          [ "$ALLOW_COMMIT_PINNED_GIT" = true ] && flags+=(--allow-commit-pinned-git)
+          uv run --no-project --with packaging --with pyyaml python .shared/scripts/manifest.py --root "$ROOT" release "${flags[@]}"

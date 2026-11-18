@@ -161,7 +161,15 @@ def git_specs(table):
     return [name for name, spec in table.items() if isinstance(spec, dict) and "git" in spec]
 
 
-def git_dependencies(root):
+COMMIT = re.compile(r"[0-9a-f]{40}")
+
+
+def commit_pinned(source):
+    """A uv git source fixed to one full commit: `rev` is 40 lowercase hex, with no branch or tag."""
+    return isinstance(source, dict) and "git" in source and bool(COMMIT.fullmatch(str(source.get("rev", "")))) and not ({"branch", "tag"} & source.keys())
+
+
+def git_dependencies(root, allow_commit_pinned=False):
     pyproject = load(root / "pyproject.toml")
     project = pyproject.get("project", {})
     found = [d for d in project.get("dependencies", []) if unreleased(d)]
@@ -170,6 +178,8 @@ def git_dependencies(root):
     tool = pyproject.get("tool", {})
     for name, source in tool.get("uv", {}).get("sources", {}).items():
         sources = source if isinstance(source, list) else [source]
+        if allow_commit_pinned and all(commit_pinned(s) for s in sources):
+            continue
         if any(isinstance(s, dict) and ("git" in s or "url" in s) for s in sources):
             found.append(name)
     for table in ("dependencies", "dev-dependencies"):
@@ -200,7 +210,7 @@ def cmd_release(args):
         for field, value in chart_fields(chart).items():
             if value != declared:
                 sys.exit(f"{chart} {field} {value} does not match manifest version {declared}")
-    pinned = git_dependencies(args.root)
+    pinned = git_dependencies(args.root, args.allow_commit_pinned_git)
     if pinned:
         sys.exit(f"stable must pin released versions, not git or URL sources: {', '.join(pinned)}")
     pypi, crate = package_names(args.root)
@@ -240,7 +250,13 @@ def main():
     parser.add_argument("--root", type=Path, default=Path("."))
     sub = parser.add_subparsers(required=True)
     sub.add_parser("matrix").set_defaults(func=cmd_matrix)
-    sub.add_parser("release").set_defaults(func=cmd_release)
+    release = sub.add_parser("release")
+    release.add_argument(
+        "--allow-commit-pinned-git",
+        action="store_true",
+        help="accept a uv git source pinned to a full 40-character commit (rev), never a branch, tag or short rev",
+    )
+    release.set_defaults(func=cmd_release)
     notes = sub.add_parser("notes")
     notes.add_argument("changelog", type=Path)
     notes.add_argument("version")

@@ -96,23 +96,6 @@ jobs:
       - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
         with:
           python-version: ${{ matrix.python-version }}
-      - if: inputs.secret-env != '[]'
-        env:
-          # Only the secrets declared above reach a reusable workflow; secret-env picks from those by name.
-          SECRETS: ${{ toJSON(secrets) }} # zizmor: ignore[overprovisioned-secrets]
-          NAMES: ${{ inputs.secret-env }}
-        run: |
-          python3 - <<'PY'
-          import json, os, secrets
-          values, names = json.loads(os.environ["SECRETS"]), json.loads(os.environ["NAMES"])
-          for n in names:
-              if not values.get(n):
-                  print(f"::warning::secret {n} is unavailable, as on fork pull requests")
-          with open(os.environ["GITHUB_ENV"], "a") as env:
-              for n in filter(values.get, names):
-                  delim = secrets.token_hex(16)
-                  env.write(f"{n}<<{delim}\n{values[n]}\n{delim}\n")
-          PY
       - if: inputs.setup-script != ''
         env:
           SCRIPT: ${{ inputs.setup-script }}
@@ -124,20 +107,30 @@ jobs:
           uv sync "${args[@]}"
       - if: needs.matrix.outputs.maturin == 'true'
         run: uv run --no-sync maturin develop --release
-      - if: ${{ !inputs.github-token }}
-        env:
+      # Only pytest sees the secrets secret-env names and, with github-token, the job token: not
+      # setup, sync, coverage or teardown. The launcher hands them to the pytest process alone;
+      # SECRETS and NAMES never reach it.
+      - env:
           PYTEST_ARGS: ${{ inputs.pytest-args }}
+          # Only the secrets declared above reach a reusable workflow; secret-env picks from those by name.
+          SECRETS: ${{ inputs.secret-env != '[]' && toJSON(secrets) || '{}' }} # zizmor: ignore[overprovisioned-secrets]
+          NAMES: ${{ inputs.secret-env }}
+          JOB_TOKEN: ${{ inputs.github-token && github.token || '' }}
         run: |
           read -ra args <<<"$PYTEST_ARGS"
-          uv run --no-sync pytest "${args[@]}"
-      # Same step, with the token. Only pytest sees it: not setup, sync, coverage or teardown.
-      - if: inputs.github-token
-        env:
-          PYTEST_ARGS: ${{ inputs.pytest-args }}
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          read -ra args <<<"$PYTEST_ARGS"
-          uv run --no-sync pytest "${args[@]}"
+          exec python3 - uv run --no-sync pytest "${args[@]}" <<'PY'
+          import json, os, sys
+          env = dict(os.environ)
+          values, names, token = json.loads(env.pop("SECRETS")), json.loads(env.pop("NAMES")), env.pop("JOB_TOKEN")
+          for n in names:
+              if values.get(n):
+                  env[n] = values[n]
+              else:
+                  print(f"::warning::secret {n} is unavailable, as on fork pull requests", flush=True)
+          if token:
+              env["GITHUB_TOKEN"] = token
+          os.execvpe(sys.argv[1], sys.argv[1:], env)
+          PY
       - if: inputs.coverage
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:

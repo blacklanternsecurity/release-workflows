@@ -169,6 +169,15 @@ def commit_pinned(source):
     return isinstance(source, dict) and "git" in source and bool(COMMIT.fullmatch(str(source.get("rev", "")))) and not ({"branch", "tag"} & source.keys())
 
 
+def builds_package(root):
+    """True when the project builds a distribution (a [build-system] table and not tool.uv.package = false).
+
+    A built wheel or sdist keeps only the dependency's name: tool.uv.sources is uv-only, so pip would resolve a
+    commit-pinned git dependency from a registry by name instead."""
+    pyproject = load(root / "pyproject.toml")
+    return "build-system" in pyproject and pyproject.get("tool", {}).get("uv", {}).get("package", True) is not False
+
+
 def git_dependencies(root, allow_commit_pinned=False):
     pyproject = load(root / "pyproject.toml")
     project = pyproject.get("project", {})
@@ -210,6 +219,10 @@ def cmd_release(args):
         for field, value in chart_fields(chart).items():
             if value != declared:
                 sys.exit(f"{chart} {field} {value} does not match manifest version {declared}")
+    if args.allow_commit_pinned_git and builds_package(args.root):
+        sys.exit(
+            "--allow-commit-pinned-git is for projects that publish no Python package: a built distribution keeps only the dependency's name, so installers resolve it from a registry, not the pinned commit"
+        )
     pinned = git_dependencies(args.root, args.allow_commit_pinned_git)
     if pinned:
         sys.exit(f"stable must pin released versions, not git or URL sources: {', '.join(pinned)}")
@@ -254,7 +267,7 @@ def main():
     release.add_argument(
         "--allow-commit-pinned-git",
         action="store_true",
-        help="accept a uv git source pinned to a full 40-character commit (rev), never a branch, tag or short rev",
+        help="accept a uv git source pinned to a full 40-character commit (rev), never a branch, tag or short rev; only for a project that builds no Python package",
     )
     release.set_defaults(func=cmd_release)
     notes = sub.add_parser("notes")

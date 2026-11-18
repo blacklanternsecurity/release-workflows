@@ -8,7 +8,8 @@ on:
       allow-commit-pinned-git:
         description: >-
           Accept a uv git source pinned to a full 40-character commit (rev), for a private dependency
-          with no registry release. Branches, tags, short revs and URL sources are still refused.
+          with no registry release, in a project that publishes no Python package (a built wheel keeps only the
+          dependency's name). Branches, tags, short revs and URL sources are still refused.
         type: boolean
         default: false
 

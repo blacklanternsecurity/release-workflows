@@ -37,6 +37,10 @@ on:
       lint:
         type: boolean
         default: true
+      github-token:
+        description: Give the pytest step the job's read-only GITHUB_TOKEN (contents read), for tests that call the GitHub API and hit the unauthenticated rate limit
+        type: boolean
+        default: false
     secrets:
       CODECOV_TOKEN:
         required: false
@@ -120,8 +124,17 @@ jobs:
           uv sync "${args[@]}"
       - if: needs.matrix.outputs.maturin == 'true'
         run: uv run --no-sync maturin develop --release
-      - env:
+      - if: ${{ !inputs.github-token }}
+        env:
           PYTEST_ARGS: ${{ inputs.pytest-args }}
+        run: |
+          read -ra args <<<"$PYTEST_ARGS"
+          uv run --no-sync pytest "${args[@]}"
+      # Same step, with the token. Only pytest sees it: not setup, sync, coverage or teardown.
+      - if: inputs.github-token
+        env:
+          PYTEST_ARGS: ${{ inputs.pytest-args }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           read -ra args <<<"$PYTEST_ARGS"
           uv run --no-sync pytest "${args[@]}"

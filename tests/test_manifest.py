@@ -188,6 +188,11 @@ def test_the_opt_in_is_refused_for_a_project_that_builds_a_package(repo, build):
     assert result.returncode != 0 and "publish no Python package" in result.stderr
 
 
+def test_the_opt_in_is_refused_when_tool_uv_package_is_true_without_a_build_system(repo):
+    result = run(repo(UV_GIT.format(pin=f'rev = "{SHA}"') + "[tool.uv]\npackage = true\n"), "release", "--allow-commit-pinned-git")
+    assert result.returncode != 0 and "publish no Python package" in result.stderr
+
+
 def test_the_opt_in_is_allowed_when_uv_builds_no_package(repo):
     pyproject = (
         '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n' + UV_GIT.format(pin=f'rev = "{SHA}"') + "[tool.uv]\npackage = false\n"

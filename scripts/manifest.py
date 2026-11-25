@@ -170,12 +170,14 @@ def commit_pinned(source):
 
 
 def builds_package(root):
-    """True when the project builds a distribution (a [build-system] table and not tool.uv.package = false).
+    """True when the project builds a distribution. uv's rule: tool.uv.package wins when set, otherwise a
+    [build-system] table means a package.
 
     A built wheel or sdist keeps only the dependency's name: tool.uv.sources is uv-only, so pip would resolve a
     commit-pinned git dependency from a registry by name instead."""
     pyproject = load(root / "pyproject.toml")
-    return "build-system" in pyproject and pyproject.get("tool", {}).get("uv", {}).get("package", True) is not False
+    uv = pyproject.get("tool", {}).get("uv", {})
+    return uv.get("package", "build-system" in pyproject) is not False
 
 
 def git_dependencies(root, allow_commit_pinned=False):

@@ -179,6 +179,27 @@ def test_release_refuses_git_sources_not_pinned_to_a_full_commit(repo, pin):
     assert result.returncode != 0 and "swarm" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "build",
+    ['[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n', '[build-system]\nbuild-backend = "maturin"\n'],
+)
+def test_the_opt_in_is_refused_for_a_project_that_builds_a_package(repo, build):
+    result = run(repo(build + UV_GIT.format(pin=f'rev = "{SHA}"')), "release", "--allow-commit-pinned-git")
+    assert result.returncode != 0 and "publish no Python package" in result.stderr
+
+
+def test_the_opt_in_is_refused_when_tool_uv_package_is_true_without_a_build_system(repo):
+    result = run(repo(UV_GIT.format(pin=f'rev = "{SHA}"') + "[tool.uv]\npackage = true\n"), "release", "--allow-commit-pinned-git")
+    assert result.returncode != 0 and "publish no Python package" in result.stderr
+
+
+def test_the_opt_in_is_allowed_when_uv_builds_no_package(repo):
+    pyproject = (
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n' + UV_GIT.format(pin=f'rev = "{SHA}"') + "[tool.uv]\npackage = false\n"
+    )
+    assert run(repo(pyproject), "release", "--allow-commit-pinned-git").returncode == 0
+
+
 def test_release_refuses_a_commit_pinned_git_source_without_the_opt_in(repo):
     result = run(repo(UV_GIT.format(pin=f'rev = "{SHA}"')), "release")
     assert result.returncode != 0 and "swarm" in result.stderr
